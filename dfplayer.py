@@ -1,5 +1,18 @@
-from machine import UART, Pin
-from utime import sleep_ms, ticks_ms, ticks_diff
+from busio import UART
+from microcontroller import Pin
+import time
+
+import board
+from digitalio import DigitalInOut, Direction, Pull
+
+def sleep_ms(t):
+    time.sleep(t/1000)
+
+def ticks_ms():
+    return time.monotonic() * 1000
+
+def ticks_diff(t1, t2):
+    return t1-t2
 
 Start_Byte = 0x7E
 Version_Byte = 0xFF
@@ -28,15 +41,16 @@ def kill_time(stamp_ms, kill_ms):
         return 0
 
 class Player():
-    def __init__(self, uart=None, busy_pin=None, config=True, volume=0.5):
+    def __init__(self, uart, busy_pin=None, config=True, volume=0.5, debug = False):
+        self.debug = debug
+        self.playtime = None
+
         self._volume = None
-        if uart is None:
-            self.uart = UART(1, 9600) # UART on 
-            self.uart.init(9600, bits=8, parity=None, stop=1)
-        else:
-            self.uart = uart
+
+        self.uart = uart
         if busy_pin is not None:
-            busy_pin.init(mode=Pin.IN, pull=Pin.PULL_UP)
+            busy_pin.direction = Direction.INPUT
+            busy_pin.pull = Pull.UP
         self.busy_pin = busy_pin
         if config:
             self.config()
@@ -51,7 +65,22 @@ class Player():
             Start_Byte, Version_Byte, Command_Length, CMD, Acknowledge,
             Par1, Par2, HighByte, LowByte, End_Byte
         ]])
+        if self.debug:
+            print([hex(c) for c in CommandLine])
         self.uart.write(CommandLine)
+
+    def query(self, CMD, Par1, Par2):
+        response = None
+        while response is None:
+            self.command(CMD, Par1, Par2)
+            response = self.uart.read(10)
+        
+        if self.debug:
+            print('R', [hex(c) for c in response])
+        
+        value = (response[5]<<8) + response[6]
+        return value
+
 
     def config(self):
         self.configtime = ticks_ms()
@@ -71,7 +100,7 @@ class Player():
     def playing(self):
         if self.busy_pin is not None:
             self.awaitplay()
-            return self.busy_pin.value() == 0
+            return not self.busy_pin.value 
         else:
             raise AssertionError("No busy pin provided, cannot detect play status")
 
@@ -123,13 +152,14 @@ class Player():
         self.awaitconfig()
         self.command(0x0C, 0x00, 0x00)
 
-def main():
-    from time import sleep
-    player = Player(busy_pin=Pin(0))
-    player.volume(0.5)
-    player.awaitvolume()
-    for folder in range(0,3):
-        for track in range(0, 2):
-            player.play(folder, track)
-            while player.playing():
-                sleep(0.01)
+    def stop(self):
+        self.awaitconfig()
+        self.command(0x16, 0x00, 0x00)
+
+
+    def query_folders(self):
+        return self.query(0x4F,0,0)
+
+    def query_filesInfolder(self, folder):
+        return self.query(0x4E,0,folder)
+
