@@ -21,7 +21,8 @@ Only dfplayer.py was ported
  Songs within  a folder similarly: 1.mp3, 2.mp3 etc.
  
  Example usage:
- ```import board
+ ```
+    import board
     import dfplayer
     import time
     
